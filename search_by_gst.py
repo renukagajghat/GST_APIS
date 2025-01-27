@@ -18,7 +18,7 @@ import mysql.connector
 app = Flask(__name__)
 
 # AntiCaptcha API Key
-ANTI_CAPTCHA_API_KEY = "e3748137bbd8a34429089d049e35eef6"
+ANTI_CAPTCHA_API_KEY = "82ed9e5b86016f99c399359ec84f6fe8"
 
 # Setup Chrome options
 options = Options()
@@ -162,14 +162,24 @@ def check_gst_details(gst_number):
         )
         search_button.click()
 
-        legal_name_element = wait.until(
-            EC.presence_of_element_located((By.XPATH, "//div[@class='col-sm-4 col-xs-12']/p[strong[contains(text(), 'Legal Name of Business')]]/following-sibling::p"))
-        )
-        legal_name = legal_name_element.text.strip()
+        # Wait for the table with the GST details to load
+        try:
+            # Look for the table with class `tbl-format`
+            table_element = WebDriverWait(driver, 20).until(
+                EC.presence_of_element_located((By.CLASS_NAME, "tbl-format"))
+            )
+            
+            # Extract Legal Name of Business from the table
+            legal_name_element = table_element.find_element(By.XPATH, "//div[@class='col-sm-4 col-xs-12']/p[strong[contains(text(), 'Legal Name of Business')]]/following-sibling::p")
+            legal_name = legal_name_element.text.strip()
 
-        save_data_to_db(gst_number, legal_name)
+            save_data_to_db(gst_number, legal_name)
 
-        return {"message": "GST details fetched and data saved successfully", "status": True, "legal_name": legal_name}
+            return {"message": "GST details fetched and data saved successfully", "status": True, "legal_name": legal_name}
+        
+        except Exception as e:
+            # If the table is not found or there is no data, return failure status
+            return {"message": "No data found", "status": False}
 
     except Exception as e:
         return {"message": f"Error occurred: {str(e)}", "status": False}

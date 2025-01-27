@@ -19,7 +19,7 @@ app = Flask(__name__)
 
 # Setup Chrome options
 options = Options()
-options.add_argument("--headless")  # Uncomment if running in headless mode
+# options.add_argument("--headless")  # Uncomment if running in headless mode
 options.add_argument("--disable-gpu")
 options.add_argument("--no-sandbox")
 options.add_argument("--disable-dev-shm-usage")
@@ -27,7 +27,7 @@ options.add_argument("--disable-dev-shm-usage")
 service = Service(executable_path='C:/Users/renuka/chromedriver.exe')
 
 # Anticaptcha API Key
-ANTI_CAPTCHA_API_KEY = "e3748137bbd8a34429089d049e35eef6"
+ANTI_CAPTCHA_API_KEY = "82ed9e5b86016f99c399359ec84f6fe8"
 
 # Aadhaar Verification URL
 PAN_URL = "https://services.gst.gov.in/services/searchtpbypan"
@@ -72,7 +72,7 @@ def solve_captcha_with_anticaptcha(captcha_image_path, max_attempts=3):
             with open(captcha_image_path, 'rb') as captcha_file:
                 captcha_image_data = captcha_file.read()
                 captcha_image = Image.open(BytesIO(captcha_image_data))
-                captcha_image_path_converted = 'uploads/captchas/captcha_image_converted.png'
+                captcha_image_path_converted = 'uploads/captcha/captcha_image_converted.png'
                 captcha_image.save(captcha_image_path_converted, 'PNG')
             
             # Re-encode the image as base64 after conversion
@@ -148,8 +148,8 @@ def check_pan_details(pan_number):
         size = captcha_image_element.size
         
         # Take a screenshot of the full page
-        driver.save_screenshot('uploads/captchas/full_page_screenshot.png')
-        image = Image.open('uploads/captchas/full_page_screenshot.png')
+        driver.save_screenshot('uploads/captcha/full_page_screenshot.png')
+        image = Image.open('uploads/captcha/full_page_screenshot.png')
         
         # Define the cropping box
         left, top = location['x'], location['y']
@@ -157,7 +157,7 @@ def check_pan_details(pan_number):
         
         # Crop the CAPTCHA from the screenshot
         captcha_image = image.crop((left, top, right, bottom))
-        captcha_image_path = 'uploads/captchas/captcha_image.png'
+        captcha_image_path = 'uploads/captcha/captcha_image.png'
         captcha_image.save(captcha_image_path)
         print(f"Cropped CAPTCHA image saved at {captcha_image_path}")
         
@@ -194,37 +194,43 @@ def check_pan_details(pan_number):
             print(f"CAPTCHA Error: {error_message}. Retrying...")
             return {"message": error_message, "status": False}
 
-        # Wait for the page to load completely and the search result to appear
-        WebDriverWait(driver, 30).until(
-            EC.presence_of_element_located((By.XPATH, "//h4[contains(text(), 'Search Result based on PAN')]"))
-        )
-        print("Search result header found")
+        # Wait for the page to load completely and check if the table exists
+        try:
+            table_container = WebDriverWait(driver, 30).until(
+                EC.presence_of_element_located((By.XPATH, "//div[@class='row' and @ng-if='searchTax_Payload.length > 0']"))
+            )
 
-        time.sleep(10)
+            gst_table = table_container.find_element(By.XPATH, ".//table")
+            rows = gst_table.find_elements(By.TAG_NAME, "tr")
 
-        # Extract all relevant data from the GST table
-        gst_data = []
-        gst_table = driver.find_element(By.XPATH, "//table[contains(@class, 'table tbl inv exp table-bordered ng-table')]")
-        rows = gst_table.find_elements(By.TAG_NAME, "tr")
-        for row in rows[1:]:  # Skip the header row
-            cols = row.find_elements(By.TAG_NAME, "td")
-            if len(cols) >= 5:  # Ensure there are enough columns
-                data_entry = {
-                    "S_NO": cols[0].text.strip(),  # SNo.
-                    "GSTIN_UIN": cols[1].text.strip(),  # GSTIN_UIN
-                    "GSTIN_UIN_STATUS": cols[2].text.strip(),  # GSTIN_UIN_STATUS 
-                    "STATE": cols[3].text.strip(),  # STATE 
-                }
-                gst_data.append(data_entry)
+            if len(rows) <= 1:  # Check if the table has only header row, meaning no data
+                return {"message": "No data found for the given PAN.", "status": False}
 
-        data = {
-            "gst_data": gst_data,  # Add all gst data to the result
-        }
+            # If data exists, proceed to extract and save it
+            gst_data = []
+            for row in rows[1:]:  # Skip the header row
+                cols = row.find_elements(By.TAG_NAME, "td")
+                if len(cols) >= 5:  # Ensure there are enough columns
+                    data_entry = {
+                        "S_NO": cols[0].text.strip(),  # SNo.
+                        "GSTIN_UIN": cols[1].text.strip(),  # GSTIN_UIN
+                        "GSTIN_UIN_STATUS": cols[2].text.strip(),  # GSTIN_UIN_STATUS 
+                        "STATE": cols[3].text.strip(),  # STATE 
+                    }
+                    gst_data.append(data_entry)
+
+            data = {
+                "gst_data": gst_data,  # Add all gst data to the result
+            }
+            
+            # Save data to the database
+            save_data_to_db(pan_number, data)
+
+            return {"message": "GST details fetched successfully and data saved successfully", "status": True, "data": data}
         
-        # Save data to the database
-        save_data_to_db(pan_number, data)
-
-        return {"message": "GST details fetched successfully and data saved successfully", "status": True, "data": data}
+        except Exception as e:
+            print(f"No data found or table extraction failed: {e}")
+            return {"message": "No data found for the given PAN.", "status": False}
 
     except Exception as e:
         print(f"Error: {e}")
@@ -232,6 +238,7 @@ def check_pan_details(pan_number):
 
     finally:
         driver.quit()
+
 
 @app.route('/get-pan-details', methods=['POST'])
 def get_pan_details():
@@ -247,6 +254,54 @@ def get_pan_details():
 
 if __name__ == '__main__':
     app.run(debug=True)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
