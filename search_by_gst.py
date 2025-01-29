@@ -18,32 +18,40 @@ import mysql.connector
 app = Flask(__name__)
 
 # AntiCaptcha API Key
-ANTI_CAPTCHA_API_KEY = "82ed9e5b86016f99c399359ec84f6fe8"
+ANTI_CAPTCHA_API_KEY = "68dc9b3228ebe691ade64c49499e69f4"
 
 # Setup Chrome options
+# Setup Chrome options
 options = Options()
-# options.add_argument("--headless")  # Uncomment if running in headless mode
+options.add_argument("--headless")  # Headless mode
 options.add_argument("--disable-gpu")
 options.add_argument("--no-sandbox")
 options.add_argument("--disable-dev-shm-usage")
+options.add_argument("--window-size=1920x1080")  # Set window size for better rendering
+options.add_argument("--start-maximized")  # Start the browser in maximized mode
+options.add_argument("--disable-extensions")
 
-service = Service(executable_path='C:/Users/renuka/chromedriver.exe')
+# Path to the chromedriver
+service = Service(executable_path='/usr/local/bin/chromedriver')
 
-def get_db_connection():
-    return mysql.connector.connect(
-        host='localhost',     
-        user='root',
-        password='',
-        database='gst_details_schema'
-    )
+driver = webdriver.Chrome(service=service, options=options)
+driver.set_window_size(1920, 1080)  # Ensure window size is set
 
-def save_data_to_db(gst_number, company_name):
-    conn = get_db_connection()
-    cursor = conn.cursor()
-    cursor.execute('''INSERT INTO gst_details (gst_number, company_name) VALUES (%s, %s)''', (gst_number, company_name))
-    conn.commit()
-    cursor.close()
-    conn.close()
+# def get_db_connection():
+#     return mysql.connector.connect(
+#         host='localhost',     
+#         user='root',
+#         password='',
+#         database='gst_details_schema'
+#     )
+
+# def save_data_to_db(gst_number, company_name):
+#     conn = get_db_connection()
+#     cursor = conn.cursor()
+#     cursor.execute('''INSERT INTO gst_details (gst_number, company_name) VALUES (%s, %s)''', (gst_number, company_name))
+#     conn.commit()
+#     cursor.close()
+#     conn.close()
 
 def solve_captcha_with_anticaptcha(captcha_image_path, max_attempts=3):
     for attempt in range(max_attempts):
@@ -104,7 +112,7 @@ def check_gst_details(gst_number):
     driver.get("https://services.gst.gov.in/services/searchtpbypan")
 
     try:
-        wait = WebDriverWait(driver, 60)
+        wait = WebDriverWait(driver, 100)
 
         # Open "Search Taxpayer" dropdown
         search_taxpayer_dropdown = wait.until(
@@ -122,18 +130,22 @@ def check_gst_details(gst_number):
         gst_input = wait.until(EC.presence_of_element_located((By.ID, "for_gstin")))
         gst_input.send_keys(gst_number)
 
+        # Scroll to the bottom of the page to ensure full page is loaded
+        driver.execute_script("window.scrollTo(0, document.body.scrollHeight);")
+
+
         # Wait for the CAPTCHA image element to load
-        captcha_image_element = WebDriverWait(driver, 20).until(
+        captcha_image_element = WebDriverWait(driver, 120).until(
             EC.presence_of_element_located((By.ID, "imgCaptcha"))
         )
         
         # Get the location and size of the CAPTCHA image
-        location = captcha_image_element.location
+        location = captcha_image_element.location_once_scrolled_into_view
         size = captcha_image_element.size
-        
+            
         # Take a screenshot of the full page
-        driver.save_screenshot('uploads/captcha/full_page_screenshot.png')
-        image = Image.open('uploads/captcha/full_page_screenshot.png')
+        driver.save_screenshot('uploads/full_page_screenshot.png')
+        image = Image.open('uploads/full_page_screenshot.png')
         
         # Define the cropping box
         left, top = location['x'], location['y']
@@ -141,7 +153,7 @@ def check_gst_details(gst_number):
         
         # Crop the CAPTCHA from the screenshot
         captcha_image = image.crop((left, top, right, bottom))
-        captcha_image_path = 'uploads/captcha/captcha_image.png'
+        captcha_image_path = 'uploads/captcha_image.png'
         captcha_image.save(captcha_image_path)
         print(f"Cropped CAPTCHA image saved at {captcha_image_path}")
         
@@ -173,7 +185,7 @@ def check_gst_details(gst_number):
             legal_name_element = table_element.find_element(By.XPATH, "//div[@class='col-sm-4 col-xs-12']/p[strong[contains(text(), 'Legal Name of Business')]]/following-sibling::p")
             legal_name = legal_name_element.text.strip()
 
-            save_data_to_db(gst_number, legal_name)
+            # save_data_to_db(gst_number, legal_name)
 
             return {"message": "GST details fetched and data saved successfully", "status": True, "legal_name": legal_name}
         
@@ -197,4 +209,4 @@ def get_gst_details():
     return jsonify(result)
 
 if __name__ == '__main__':
-    app.run(debug=True)
+    app.run(debug=True, host="172.16.11.39", port=5002)
